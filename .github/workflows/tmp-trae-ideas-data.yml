@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - tmp-trae-ideas-data-20260716
+  pull_request:
+    branches:
+      - master
   workflow_dispatch:
 
 permissions:
@@ -11,7 +14,7 @@ permissions:
 
 jobs:
   build-data:
-    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    if: ${{ github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip ci]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -86,3 +89,18 @@ jobs:
           git add tmp-trae-data/ideas.ndjson.gz tmp-trae-data/metadata.json
           git commit -m "生成TRAE点子数据快照 [skip ci]"
           git push origin tmp-trae-ideas-data-20260716
+
+  upload-artifact:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Upload compact data
+        uses: actions/upload-artifact@v4
+        with:
+          name: trae-ideas-data
+          path: |
+            tmp-trae-data/ideas.ndjson.gz
+            tmp-trae-data/metadata.json
+          if-no-files-found: error
+          retention-days: 1

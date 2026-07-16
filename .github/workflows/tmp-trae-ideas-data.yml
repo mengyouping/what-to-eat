@@ -1,0 +1,88 @@
+name: Temporary TRAE Ideas Data
+
+on:
+  push:
+    branches:
+      - tmp-trae-ideas-data-20260716
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-data:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: tmp-trae-ideas-data-20260716
+
+      - name: Download and compact public snapshot
+        run: |
+          mkdir -p tmp-trae-data
+          curl --fail --location --retry 5 --retry-delay 3 \
+            -o /tmp/demos.json \
+            https://raw.githubusercontent.com/luoqianshi/TRAE-AI-Creativity-Competition-Idea-Hall/main/data/demos.json
+          python - <<'PY'
+          import gzip
+          import html
+          import json
+          from pathlib import Path
+          from urllib.parse import quote
+
+          source = json.loads(Path('/tmp/demos.json').read_text(encoding='utf-8'))
+          rows = source.get('demos', [])
+          out = Path('tmp-trae-data/ideas.ndjson.gz')
+          with gzip.open(out, 'wt', encoding='utf-8', compresslevel=9) as f:
+              for item in rows:
+                  demo_url = item.get('demo_url')
+                  attachment_url = None
+                  if demo_url:
+                      attachment_url = 'https://raw.githubusercontent.com/luoqianshi/TRAE-AI-Creativity-Competition-Idea-Hall/main/' + quote(demo_url, safe='/')
+                  excerpt_html = item.get('excerpt') or ''
+                  record = {
+                      'topic_id': item.get('topic_id'),
+                      'title': item.get('title'),
+                      'forum_url': item.get('forum_url'),
+                      'author': item.get('author'),
+                      'created_at': item.get('created_at'),
+                      'tags': item.get('tags') or [],
+                      'views': item.get('views'),
+                      'like_count': item.get('like_count'),
+                      'excerpt_html': excerpt_html,
+                      'detail_text': html.unescape(excerpt_html),
+                      'cover_image': item.get('cover_image'),
+                      'demo_type': item.get('demo_type'),
+                      'demo_url': demo_url,
+                      'html_attachment_url': attachment_url,
+                      'external_url': item.get('external_url'),
+                      'has_demo': item.get('has_demo'),
+                      'archived': item.get('archived'),
+                      'insight': item.get('insight'),
+                      'approved': item.get('approved'),
+                      'approved_source': item.get('approved_source'),
+                      'screenshot': item.get('screenshot'),
+                  }
+                  f.write(json.dumps(record, ensure_ascii=False, separators=(',', ':')) + '\n')
+
+          Path('tmp-trae-data/metadata.json').write_text(
+              json.dumps({
+                  'last_updated': source.get('last_updated'),
+                  'total_count': source.get('total_count'),
+                  'exported_rows': len(rows),
+                  'source': 'https://github.com/luoqianshi/TRAE-AI-Creativity-Competition-Idea-Hall/blob/main/data/demos.json'
+              }, ensure_ascii=False, indent=2),
+              encoding='utf-8'
+          )
+          print(f'exported {len(rows)} records, gzip={out.stat().st_size} bytes')
+          PY
+
+      - name: Commit generated data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tmp-trae-data/ideas.ndjson.gz tmp-trae-data/metadata.json
+          git commit -m "生成TRAE点子数据快照 [skip ci]"
+          git push origin tmp-trae-ideas-data-20260716
